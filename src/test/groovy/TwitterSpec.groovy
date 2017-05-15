@@ -33,6 +33,7 @@ class Twitter {
   }
 
   def create_tweet(msg){
+    def resp
     resp = twitter.post(
         path: 'update.json',
         body: [ status: msg, source: 'httpbuilder' ],
@@ -41,7 +42,7 @@ class Twitter {
     return resp.data
   }
 
-  def check_tweet(tweets, tweet_id){
+  def check_tweet(tweets, tweet_id, msg){
     for (int i=0; i < tweets.data.size(); i++){
         if (tweets.data[i]['id'] == tweet_id) {
             assert tweets.data[i]['text'] == msg;
@@ -54,36 +55,88 @@ class Twitter {
             def dayOfMonth = date.getAt(Calendar.DAY_OF_MONTH)
 
             assert calendar_day == dayOfMonth
-            break
+            return true
         }
-    assert false : "tweet wasn't found"
+    return false
     }
+  }
+
+  def check_tweet_deleted(tweets, tweet_id){
+    for (int i=0; i < tweets.data.size(); i++){
+      if (tweets.data[i]['id'] == tweet_id) {
+          return false
+      }
+    }
+    return true
   }
 
 }
 
 
 class TwitterSpec extends Specification {
+
   @Shared twitter = new Twitter()
-  //def setupSpec() {
-  //  Twitter twitter
-  //  @Shared twitter = new Twitter()
-  //}
 
   def "check tweet can be created"() {
     setup:
     def msg = 'this is test tweet to check update feature'
 
     when: "tweet is created"
+
+    def tweet_resp
+    def tweet_id
+    def timeline
+
     tweet_resp = twitter.create_tweet(msg)
     tweet_id = tweet_resp.id
-    timeline = twitter.get( path : 'home_timeline.json' )
+    timeline = twitter.twitter.get( path : 'home_timeline.json' )
 
     then: "it should appear on timeline"
-    twitter.check_tweet(timeline, tweet_id)
+    twitter.check_tweet(timeline, tweet_id, msg)
 
-    //cleanup:
-    //resp = twitter.post(path: "destroy/${res.id}.json")
-    //resp.status == 200
+    cleanup:
+    def resp
+    resp = twitter.twitter.post(path: "destroy/${tweet_id}.json")
+  }
+
+  def "check tweet can be deleted"() {
+    setup: "tweet is created"
+    def msg = 'this is test tweet to check delete feature'
+    def tweet_resp
+    def tweet_id
+
+    tweet_resp = twitter.create_tweet(msg)
+    tweet_id = tweet_resp.id
+
+    when: "tweet is deleted"
+    def timeline
+    def resp
+    resp = twitter.twitter.post(path: "destroy/${tweet_id}.json")
+    timeline = twitter.twitter.get( path : 'home_timeline.json' )
+    twitter.twitter.get( path : "show/${tweet_id}.json")
+
+    then: "it should disappear from timeline"
+    thrown(groovyx.net.http.HttpResponseException)
+    twitter.check_tweet_deleted(timeline, tweet_id)
+  }
+
+  def "check duplicate tweet can't be created"() {
+    setup: "tweet is created"
+    def msg = 'this is test tweet to check duplicates are disallowed'
+    def tweet_resp
+    def tweet_id
+    tweet_resp = twitter.create_tweet(msg)
+    tweet_id = tweet_resp.id
+
+    when: "tweet with duplicate message is created"
+    tweet_resp = twitter.create_tweet(msg)
+
+    then: "403 response code should be returned"
+    def e = thrown(Exception)
+    e.response.status == 403
+
+    cleanup:
+    def resp
+    resp = twitter.twitter.post(path: "destroy/${tweet_id}.json")
   }
 }
